@@ -11,6 +11,8 @@ import io
 import sys
 import webbrowser
 from PIL import Image, ImageTk
+import datetime
+import time
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -24,7 +26,7 @@ class PantaRheiExporter:
     def __init__(self, root):
         self.root = root
         self.root.title("Panta Rhei Publication Exporter v3")
-        self.root.geometry("500x620")
+        self.root.geometry("500x680")
         
         # Load Icon
         try:
@@ -193,7 +195,8 @@ class PantaRheiExporter:
             self.btn_run.config(text="START AUTOCONVERT", bg="#2e7d32")
             self.selection_frame.config(text="1. Setup Paths (Live)")
             if self.last_source_folder:
-                self.lbl_files.config(text=f"Watching: {os.path.basename(self.last_source_folder)}", fg="black")
+                folder_name = os.path.basename(os.path.normpath(self.last_source_folder))
+                self.lbl_files.config(text=f"Watching: {folder_name}", fg="black")
 
     def select_watch_folder(self):
         initial_dir = self.last_source_folder if os.path.exists(self.last_source_folder) else None
@@ -213,7 +216,8 @@ class PantaRheiExporter:
                     if self.export_folder and os.path.exists(self.export_folder):
                         self.lbl_folder.config(text=f"Saving to: {os.path.basename(self.export_folder)}", fg="black")
                     if self.last_source_folder and os.path.exists(self.last_source_folder):
-                        self.lbl_files.config(text=f"Last folder: {os.path.basename(self.last_source_folder)}", fg="gray")
+                        folder_name = os.path.basename(os.path.normpath(self.last_source_folder))
+                        self.lbl_files.config(text=f"Last folder: {folder_name}", fg="gray")
         except Exception as e:
             print(f"Error loading config: {e}")
 
@@ -242,7 +246,8 @@ class PantaRheiExporter:
         folder = filedialog.askdirectory(initialdir=initial_dir)
         if folder:
             self.export_folder = folder
-            self.lbl_folder.config(text=f"Saving to: {os.path.basename(folder)}", fg="black")
+            folder_name = os.path.basename(os.path.normpath(folder))
+            self.lbl_folder.config(text=f"Saving to: {folder_name}", fg="black")
             self.save_config()
 
     def load_npy_from_zip(self, zip_file, filename):
@@ -434,9 +439,10 @@ class PantaRheiExporter:
                 messagebox.showerror("Error", "Please select both a watch folder and an export folder.")
                 return
             self.is_watching = True
-            self.seen_files = {f for f in os.listdir(self.last_source_folder) if f.endswith(".prz")}
+            # Initialize seen_files as empty to trigger a scan of all files on start
+            self.seen_files = set() 
             self.btn_run.config(text="STOP WATCHING", bg="#d32f2f")
-            self.lbl_status.config(text="Watching for new files...", fg="#2e7d32")
+            self.lbl_status.config(text="Starting folder watch...", fg="#2e7d32")
             self.progress_frame.pack(pady=10, padx=40, fill="x")
             self.check_for_new_files()
 
@@ -445,25 +451,49 @@ class PantaRheiExporter:
             return
 
         try:
-            current_files = {f for f in os.listdir(self.last_source_folder) if f.endswith(".prz")}
+            # 1. Get current files (case-insensitive extension check)
+            current_files = {f for f in os.listdir(self.last_source_folder) if f.lower().endswith(".prz")}
             new_files = current_files - self.seen_files
             
             if new_files:
                 for f_name in sorted(new_files):
                     f_path = os.path.join(self.last_source_folder, f_name)
+                    
+                    # 2. Check if output already exists (Smart Scanning)
+                    base_name = os.path.splitext(f_name)[0]
+                    target_path = os.path.join(self.export_folder, f"{base_name}.png")
+                    
+                    if os.path.exists(target_path):
+                        self.seen_files.add(f_name)
+                        continue
+
                     self.lbl_status.config(text=f"Auto-converting: {f_name}", fg="#2e7d32")
                     self.root.update()
                     try:
                         self.process_file(f_path)
+                        # Only mark as seen if successfully processed
+                        self.seen_files.add(f_name)
+                    except PermissionError:
+                        # File is likely still being written by the microscope
+                        print(f"File busy, skipping for now: {f_name}")
+                        self.lbl_status.config(text=f"Waiting for microscope: {f_name}", fg="#f57c00")
+                        self.root.update()
                     except Exception as e:
                         print(f"Error auto-converting {f_name}: {e}")
-                
-                self.seen_files.update(new_files)
-                self.lbl_status.config(text="Watching for new files...", fg="#2e7d32")
+                        self.lbl_status.config(text=f"Error on {f_name}: {str(e)[:30]}...", fg="red")
+                        self.root.update()
+                        self.seen_files.add(f_name) # Don't retry if it's a real error
+                        time.sleep(1)
+            
+            # 3. Update heartbeat/status
+            now = datetime.datetime.now().strftime("%H:%M:%S")
+            self.lbl_status.config(text=f"Watching... (Last check: {now})", fg="#2e7d32")
+            
         except Exception as e:
             print(f"Watch error: {e}")
+            self.lbl_status.config(text=f"Watch Error: {str(e)[:30]}", fg="red")
         
-        self.root.after(3000, self.check_for_new_files) # Check every 3 seconds
+        self.root.after(10000, self.check_for_new_files) # Check every 10 seconds
 
 if __name__ == "__main__":
     root = tk.Tk()
