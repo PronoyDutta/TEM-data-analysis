@@ -9,6 +9,7 @@ import os
 import traceback
 import io
 import sys
+import webbrowser
 from PIL import Image, ImageTk
 
 def resource_path(relative_path):
@@ -46,50 +47,89 @@ class PantaRheiExporter:
                             background='#4caf50', 
                             lightcolor='#81c784', 
                             darkcolor='#2e7d32')
+            
+            # Style for Tabs (Modern Green look)
+            style.configure("TNotebook", background='#f5f5f5', borderwidth=0)
+            style.configure("TNotebook.Tab", padding=[20, 8], font=('Arial', 10), background='#e0e0e0', borderwidth=0, width=15, anchor="center")
+            
+            # Remove the dotted focus ring
+            style.layout("TNotebook.Tab", [
+                ('Notebook.tab', {
+                    'sticky': 'nswe',
+                    'children': [
+                        ('Notebook.padding', {
+                            'side': 'top',
+                            'sticky': 'nswe',
+                            'children': [
+                                ('Notebook.label', {'sticky': 'nswe'})
+                            ]
+                        })
+                    ]
+                })
+            ])
+
+            style.map("TNotebook.Tab", 
+                      background=[("selected", "#2e7d32"), ("active", "#c8e6c9")], 
+                      foreground=[("selected", "white"), ("active", "black")],
+                      font=[("selected", ('Arial', 10, 'bold'))],
+                      padding=[("selected", [15, 6]), ("!selected", [15, 3])],
+                      shift=[("selected", [0, 0])])
         except:
             pass
 
-        tk.Label(root, text="Panta Rhei Image Converter", font=("Arial", 18, "bold"), fg="#2e7d32").pack(pady=15)
+        tk.Label(root, text="Panta Rhei Image Converter", font=("Arial", 18, "bold"), fg="#2e7d32").pack(pady=10)
+        
+        # Tabs Setup
+        self.notebook = ttk.Notebook(root)
+        self.notebook.pack(pady=5, padx=10, fill="both", expand=True)
+        
+        self.tab_converter = tk.Frame(self.notebook, bg='#f5f5f5')
+        self.tab_about = tk.Frame(self.notebook, bg='#f5f5f5')
+        
+        self.notebook.add(self.tab_converter, text="Converter")
+        self.notebook.add(self.tab_about, text="About")
+
+        # --- CONVERTER TAB ---
         
         # Mode Selection
-        mode_frame = tk.LabelFrame(root, text="Select Mode", padx=10, pady=5)
+        mode_frame = tk.LabelFrame(self.tab_converter, text="Select Mode", padx=10, pady=5, bg='#f5f5f5')
         mode_frame.pack(padx=20, pady=5, fill="x")
         self.mode_var = tk.StringVar(value="batch")
-        tk.Radiobutton(mode_frame, text="Batch Mode (Manual)", variable=self.mode_var, value="batch", command=self.update_ui_mode).grid(row=0, column=0, padx=20)
-        tk.Radiobutton(mode_frame, text="Live Folder Watcher", variable=self.mode_var, value="auto", command=self.update_ui_mode).grid(row=0, column=1, padx=20)
+        tk.Radiobutton(mode_frame, text="Batch Mode", variable=self.mode_var, value="batch", command=self.update_ui_mode, bg='#f5f5f5', activebackground='#f5f5f5').grid(row=0, column=0, padx=20)
+        tk.Radiobutton(mode_frame, text="Auto-Convert", variable=self.mode_var, value="auto", command=self.update_ui_mode, bg='#f5f5f5', activebackground='#f5f5f5').grid(row=0, column=1, padx=20)
 
         # File/Folder Selection Frame
-        self.selection_frame = tk.LabelFrame(root, text="1. Setup Paths", padx=15, pady=10)
+        self.selection_frame = tk.LabelFrame(self.tab_converter, text="1. Setup Paths", padx=15, pady=10, bg='#f5f5f5')
         self.selection_frame.pack(padx=20, pady=10, fill="x")
 
         self.btn_select_source = tk.Button(self.selection_frame, text="Select .prz Files", command=self.select_files, width=25)
         self.btn_select_source.pack(pady=5)
-        self.lbl_files = tk.Label(self.selection_frame, text="No files selected", fg="gray", wraplength=400)
+        self.lbl_files = tk.Label(self.selection_frame, text="No files selected", fg="gray", wraplength=400, bg='#f5f5f5')
         self.lbl_files.pack()
 
         tk.Button(self.selection_frame, text="Select Export Folder", command=self.select_folder, width=25).pack(pady=5)
-        self.lbl_folder = tk.Label(self.selection_frame, text="No folder selected", fg="gray", wraplength=400)
+        self.lbl_folder = tk.Label(self.selection_frame, text="No folder selected", fg="gray", wraplength=400, bg='#f5f5f5')
         self.lbl_folder.pack()
 
         # Settings Frame
-        settings = tk.LabelFrame(root, text="2. Export Settings", padx=15, pady=10)
+        settings = tk.LabelFrame(self.tab_converter, text="2. Export Settings", padx=15, pady=10, bg='#f5f5f5')
         settings.pack(padx=20, pady=10, fill="x")
 
-        tk.Label(settings, text="DPI:").grid(row=0, column=0, sticky="w", pady=5)
+        tk.Label(settings, text="DPI:", bg='#f5f5f5').grid(row=0, column=0, sticky="w", pady=5)
         self.dpi_var = tk.StringVar(value="300")
         tk.Entry(settings, textvariable=self.dpi_var, width=10).grid(row=0, column=1, sticky="w")
 
-        tk.Label(settings, text="Scalebar (nm):").grid(row=1, column=0, sticky="w", pady=5)
+        tk.Label(settings, text="Scalebar (nm):", bg='#f5f5f5').grid(row=1, column=0, sticky="w", pady=5)
         self.sb_var = tk.StringVar(value="50")
         self.sb_entry = tk.Entry(settings, textvariable=self.sb_var, width=10)
         self.sb_entry.grid(row=1, column=1, sticky="w")
         
         self.auto_sb_var = tk.BooleanVar(value=True)
-        self.chk_auto_sb = tk.Checkbutton(settings, text="Auto", variable=self.auto_sb_var, command=self.toggle_sb_entry)
+        self.chk_auto_sb = tk.Checkbutton(settings, text="Auto", variable=self.auto_sb_var, command=self.toggle_sb_entry, bg='#f5f5f5', activebackground='#f5f5f5')
         self.chk_auto_sb.grid(row=1, column=2, sticky="w", padx=5)
 
         self.auto_contrast_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(settings, text="Auto Contrast (0.1% - 99.9%)", variable=self.auto_contrast_var).grid(row=2, column=0, columnspan=2, sticky="w", pady=5)
+        tk.Checkbutton(settings, text="Auto Contrast (0.1% - 99.9%)", variable=self.auto_contrast_var, bg='#f5f5f5', activebackground='#f5f5f5').grid(row=2, column=0, columnspan=2, sticky="w", pady=5)
         
         self.toggle_sb_entry()
 
@@ -100,18 +140,21 @@ class PantaRheiExporter:
             self.sb_entry.config(state="normal")
 
         # Action Button
-        self.btn_run = tk.Button(root, text="GENERATE IMAGES", bg="#2e7d32", fg="white", 
+        self.btn_run = tk.Button(self.tab_converter, text="GENERATE IMAGES", bg="#2e7d32", fg="white", 
                                 activebackground="#1b5e20", activeforeground="white",
                                 font=("Arial", 12, "bold"), height=2, command=self.run_batch)
-        self.btn_run.pack(pady=20, fill="x", padx=40)
+        self.btn_run.pack(pady=15, fill="x", padx=40)
 
         # Progress (Initially hidden)
-        self.progress_frame = tk.Frame(root)
+        self.progress_frame = tk.Frame(self.tab_converter, bg='#f5f5f5')
         self.progress = ttk.Progressbar(self.progress_frame, orient="horizontal", length=400, 
                                         mode="determinate", style="Green.Horizontal.TProgressbar")
         self.progress.pack(pady=5, fill="x")
-        self.lbl_status = tk.Label(self.progress_frame, text="Ready", fg="gray")
+        self.lbl_status = tk.Label(self.progress_frame, text="Ready", fg="gray", bg='#f5f5f5')
         self.lbl_status.pack()
+
+        # --- ABOUT TAB ---
+        self.setup_about_tab()
 
         self.file_list = []
         self.export_folder = ""
@@ -121,6 +164,24 @@ class PantaRheiExporter:
         
         self.load_config()
         self.update_ui_mode()
+
+    def setup_about_tab(self):
+        desc = ("A professional TEM image conversion utility designed to "
+                "streamline the process of exporting Panta Rhei (.prz) files "
+                "for scientific publications.\n\n"
+                "Developed to ensure consistency in scalebars, contrast, "
+                "and image quality across large datasets.")
+        
+        tk.Label(self.tab_about, text="Panta Rhei Image Converter v1.0", font=("Arial", 14, "bold"), fg="#2e7d32", bg='#f5f5f5').pack(pady=20)
+        tk.Label(self.tab_about, text=desc, wraplength=400, justify="center", font=("Arial", 10), bg='#f5f5f5').pack(pady=10, padx=20)
+        
+        tk.Label(self.tab_about, text="Follow, Edit, Change and Contribute here:", font=("Arial", 10, "bold"), bg='#f5f5f5').pack(pady=(20, 0))
+        
+        link = tk.Label(self.tab_about, text="Pronoy Dutta (GitHub)", fg="#0078d7", cursor="hand2", font=("Arial", 10, "underline"), bg='#f5f5f5')
+        link.pack(pady=5)
+        link.bind("<Button-1>", lambda e: webbrowser.open_new("https://github.com/PronoyDutta"))
+        
+        tk.Label(self.tab_about, text="© 2026 MIT License", fg="gray", font=("Arial", 8), bg='#f5f5f5').pack(side="bottom", pady=20)
 
     def update_ui_mode(self):
         if self.mode_var.get() == "batch":
