@@ -25,7 +25,7 @@ def resource_path(relative_path):
 class PantaRheiExporter:
     def __init__(self, root):
         self.root = root
-        self.root.title("Panta Rhei Publication Exporter v3")
+        self.root.title("Panta Convert")
         self.root.geometry("500x680")
         
         # Load Icon
@@ -79,7 +79,7 @@ class PantaRheiExporter:
         except:
             pass
 
-        tk.Label(root, text="Panta Rhei Image Converter", font=("Arial", 18, "bold"), fg="#2e7d32").pack(pady=10)
+        tk.Label(root, text="Panta Convert", font=("Arial", 18, "bold"), fg="#2e7d32").pack(pady=10)
         
         # Tabs Setup
         self.notebook = ttk.Notebook(root)
@@ -163,6 +163,7 @@ class PantaRheiExporter:
         self.last_source_folder = ""
         self.is_watching = False
         self.seen_files = set()
+        self.pending_files = {} # Stores {filename: last_size} for stability check
         
         self.load_config()
         self.update_ui_mode()
@@ -174,7 +175,7 @@ class PantaRheiExporter:
                 "Developed to ensure consistency in scalebars, contrast, "
                 "and image quality across large datasets.")
         
-        tk.Label(self.tab_about, text="Panta Rhei Image Converter v1.0", font=("Arial", 14, "bold"), fg="#2e7d32", bg='#f5f5f5').pack(pady=20)
+        tk.Label(self.tab_about, text="Panta Convert v1.0", font=("Arial", 14, "bold"), fg="#2e7d32", bg='#f5f5f5').pack(pady=20)
         tk.Label(self.tab_about, text=desc, wraplength=400, justify="center", font=("Arial", 10), bg='#f5f5f5').pack(pady=10, padx=20)
         
         tk.Label(self.tab_about, text="Follow, Edit, Change and Contribute here:", font=("Arial", 10, "bold"), bg='#f5f5f5').pack(pady=(20, 0))
@@ -441,6 +442,7 @@ class PantaRheiExporter:
             self.is_watching = True
             # Initialize seen_files as empty to trigger a scan of all files on start
             self.seen_files = set() 
+            self.pending_files = {} # Reset pending files
             self.btn_run.config(text="STOP WATCHING", bg="#d32f2f")
             self.lbl_status.config(text="Starting folder watch...", fg="#2e7d32")
             self.progress_frame.pack(pady=10, padx=40, fill="x")
@@ -465,27 +467,54 @@ class PantaRheiExporter:
                     
                     if os.path.exists(target_path):
                         self.seen_files.add(f_name)
+                        if f_name in self.pending_files: del self.pending_files[f_name]
                         continue
 
+                    # 3. Stability Check: Wait for file size to stop changing
+                    try:
+                        current_size = os.path.getsize(f_path)
+                    except:
+                        continue # File might have been moved or deleted
+
+                    if f_name not in self.pending_files:
+                        # First time seeing this file, record size and wait for next check
+                        self.pending_files[f_name] = current_size
+                        self.lbl_status.config(text=f"Detected: {f_name} (Waiting for stability...)", fg="#0078d7")
+                        self.root.update()
+                        continue
+                    
+                    if current_size != self.pending_files[f_name]:
+                        # File is still growing, update size and wait more
+                        self.pending_files[f_name] = current_size
+                        self.lbl_status.config(text=f"File growing: {f_name}...", fg="#0078d7")
+                        self.root.update()
+                        continue
+
+                    # File size is stable, proceed with conversion
                     self.lbl_status.config(text=f"Auto-converting: {f_name}", fg="#2e7d32")
                     self.root.update()
                     try:
                         self.process_file(f_path)
                         # Only mark as seen if successfully processed
                         self.seen_files.add(f_name)
+                        if f_name in self.pending_files: del self.pending_files[f_name]
                     except PermissionError:
-                        # File is likely still being written by the microscope
-                        print(f"File busy, skipping for now: {f_name}")
-                        self.lbl_status.config(text=f"Waiting for microscope: {f_name}", fg="#f57c00")
+                        # File is still locked by the microscope despite stable size
+                        print(f"File locked, skipping for now: {f_name}")
+                        self.lbl_status.config(text=f"Waiting for lock release: {f_name}", fg="#f57c00")
                         self.root.update()
                     except Exception as e:
                         print(f"Error auto-converting {f_name}: {e}")
                         self.lbl_status.config(text=f"Error on {f_name}: {str(e)[:30]}...", fg="red")
                         self.root.update()
                         self.seen_files.add(f_name) # Don't retry if it's a real error
+                        if f_name in self.pending_files: del self.pending_files[f_name]
                         time.sleep(1)
             
-            # 3. Update heartbeat/status
+            # 4. Clean up pending_files for files that disappeared
+            self.pending_files = {k: v for k, v in self.pending_files.items() if k in current_files}
+            
+            # 5. Update heartbeat/status
             now = datetime.datetime.now().strftime("%H:%M:%S")
             self.lbl_status.config(text=f"Watching... (Last check: {now})", fg="#2e7d32")
             
