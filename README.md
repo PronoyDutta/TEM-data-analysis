@@ -1,6 +1,6 @@
-# Panta Rhei Image Converter (TEM Analysis Tool)
+# Panta_Convert (TEM Analysis Tool)
 
-A professional tool for batch-converting and live-monitoring Panta Rhei TEM (`.prz`) files into high-quality PNG images for publication.
+A professional tool for batch-converting and live-monitoring Panta Rhei TEM (`.prz`) files into high-quality PNG images with appropriate scale-bars for publication.
 
 ## Features
 
