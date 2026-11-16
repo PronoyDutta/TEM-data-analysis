@@ -14,7 +14,7 @@ A professional tool for batch-converting and live-monitoring Panta Rhei TEM (`.p
 ## Installation
 
 ### For Users
-Download the latest `Panta-Rhei-Image-Converter.exe` from the Releases section and run it directly.
+Download the latest `Panta_Convert.exe` from the Releases section and run it directly.
 
 ### For Developers
 1. Clone this repository.

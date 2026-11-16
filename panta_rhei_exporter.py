@@ -175,14 +175,14 @@ class PantaRheiExporter:
                 "Developed to ensure consistency in scalebars, contrast, "
                 "and image quality across large datasets.")
         
-        tk.Label(self.tab_about, text="Panta Convert v1.0", font=("Arial", 14, "bold"), fg="#2e7d32", bg='#f5f5f5').pack(pady=20)
+        tk.Label(self.tab_about, text="Panta Convert v1.1", font=("Arial", 14, "bold"), fg="#2e7d32", bg='#f5f5f5').pack(pady=20)
         tk.Label(self.tab_about, text=desc, wraplength=400, justify="center", font=("Arial", 10), bg='#f5f5f5').pack(pady=10, padx=20)
         
         tk.Label(self.tab_about, text="Follow, Edit, Change and Contribute here:", font=("Arial", 10, "bold"), bg='#f5f5f5').pack(pady=(20, 0))
         
-        link = tk.Label(self.tab_about, text="Pronoy Dutta (GitHub)", fg="#0078d7", cursor="hand2", font=("Arial", 10, "underline"), bg='#f5f5f5')
+        link = tk.Label(self.tab_about, text="PronoyDutta/TEM-data-analysis (GitHub)", fg="#0078d7", cursor="hand2", font=("Arial", 10, "underline"), bg='#f5f5f5')
         link.pack(pady=5)
-        link.bind("<Button-1>", lambda e: webbrowser.open_new("https://github.com/PronoyDutta"))
+        link.bind("<Button-1>", lambda e: webbrowser.open_new("https://github.com/PronoyDutta/TEM-data-analysis"))
         
         tk.Label(self.tab_about, text="© 2026 MIT License", fg="gray", font=("Arial", 8), bg='#f5f5f5').pack(side="bottom", pady=20)
 
@@ -260,23 +260,61 @@ class PantaRheiExporter:
                 # Use io.BytesIO to make it a seekable file-like object
                 return np.load(io.BytesIO(content), allow_pickle=True)
             except Exception as e:
-                # Fallback: find JSON content if it's a metadata file wrapped in NPY
-                if b'[' in content and b']' in content:
-                    start = content.find(b'[')
-                    end = content.rfind(b']') + 1
-                    try:
-                        return json.loads(content[start:end].decode('utf-8'))
-                    except:
-                        pass
+                # Fallback: find JSON content if it's a metadata file wrapped in NPY or raw text
+                for open_char, close_char in [(b'{', b'}'), (b'[', b']')]:
+                    if open_char in content and close_char in content:
+                        start = content.find(open_char)
+                        end = content.rfind(close_char) + 1
+                        try:
+                            return json.loads(content[start:end].decode('utf-8', errors='ignore'))
+                        except Exception:
+                            pass
                 raise e
 
     def process_file(self, prz_path):
         with zipfile.ZipFile(prz_path, 'r') as prz:
             # 1. Metadata Handling
             namelist = prz.namelist()
-            meta_name = 'meta_data_json.npy' if 'meta_data_json.npy' in namelist else 'metadata.json'
             
-            if meta_name.endswith('.json'):
+            # Panta Rhei formats across versions:
+            # - 'meta_data_json.npy': Newer Panta Rhei (e.g. format version >= 8, JSON string wrapped in NPY)
+            # - 'meta_data.npy': Older Panta Rhei (e.g. format version 5, pickled python dictionary)
+            # - 'metadata.json' / 'meta_data.json': Standalone JSON files if extracted/converted
+            # - 'metadata.npy': Alternative naming convention
+            candidate_names = [
+                'meta_data_json.npy',
+                'meta_data.npy',
+                'metadata.json',
+                'meta_data.json',
+                'metadata.npy'
+            ]
+            
+            meta_name = None
+            # 1a. Exact match
+            for cand in candidate_names:
+                if cand in namelist:
+                    meta_name = cand
+                    break
+            
+            # 1b. Case-insensitive / basename match (handles subdirectories or case variations)
+            if not meta_name:
+                for cand in candidate_names:
+                    match = next((f for f in namelist if os.path.basename(f).lower() == cand.lower()), None)
+                    if match:
+                        meta_name = match
+                        break
+
+            # 1c. Heuristic search: any archive entry containing 'meta' and ending in .npy or .json
+            if not meta_name:
+                meta_name = next((f for f in namelist if 'meta' in os.path.basename(f).lower() and f.lower().endswith(('.npy', '.json'))), None)
+
+            if not meta_name:
+                raise FileNotFoundError(
+                    f"Could not find metadata file inside '{os.path.basename(prz_path)}'. "
+                    f"Archive entries: {', '.join(namelist)}"
+                )
+            
+            if meta_name.lower().endswith('.json'):
                 with prz.open(meta_name) as f:
                     meta_json = json.load(f)
             else:
@@ -298,23 +336,33 @@ class PantaRheiExporter:
                     try:
                         # If it's a JSON string inside the NPY
                         meta_json = json.loads(meta_json)
-                    except:
+                    except Exception:
                         break
                 else:
                     break
             
             # Calibration (Panta Rhei stores this in meters)
-            try:
-                pixel_size_m = meta_json['device.calib'][0]['value']
-            except (KeyError, IndexError):
-                # Try alternative paths if structure differs
-                pixel_size_m = meta_json.get('pixel_size', 1e-10) # Fallback
+            pixel_size_m = None
+            if isinstance(meta_json, dict):
+                try:
+                    calib = meta_json.get('device.calib')
+                    if calib and isinstance(calib, list) and len(calib) > 0 and isinstance(calib[0], dict):
+                        pixel_size_m = calib[0].get('value')
+                except Exception:
+                    pass
+                
+                if pixel_size_m is None:
+                    pixel_size_m = meta_json.get('pixel_size')
+
+            if not pixel_size_m or not isinstance(pixel_size_m, (int, float)) or pixel_size_m <= 0:
+                pixel_size_m = 1e-10 # Fallback
 
             # 2. Image Data Handling
-            if 'data.npy' not in namelist:
-                raise FileNotFoundError("Could not find 'data.npy' inside the .prz archive.")
+            data_name = 'data.npy' if 'data.npy' in namelist else next((f for f in namelist if os.path.basename(f).lower() == 'data.npy'), None)
+            if not data_name:
+                raise FileNotFoundError(f"Could not find 'data.npy' inside '{os.path.basename(prz_path)}'.")
                 
-            with prz.open('data.npy') as f:
+            with prz.open(data_name) as f:
                 content = f.read()
                 try:
                     image = np.load(io.BytesIO(content))
@@ -376,8 +424,9 @@ class PantaRheiExporter:
             # 72 points per inch * 10 inches = 720 points total. 
             # A value of 26-28 is generally clear and consistent.
             fontsize = 26
+            sb_text = f'{int(sb_nm)} nm' if sb_nm >= 1 and sb_nm == int(sb_nm) else f'{sb_nm:g} nm'
             ax.text(pad + sb_px/2, height - pad - bar_height - (height * 0.01), 
-                    f'{int(sb_nm)} nm', color='white', 
+                    sb_text, color='white', 
                     fontsize=fontsize, fontweight='bold', ha='center', va='bottom')
         except Exception as e:
             print(f"Warning: Could not add scalebar: {e}")
