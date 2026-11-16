@@ -2,6 +2,32 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import zipfile
 import numpy as np
+import importlib.abc
+
+# NumPy 1.x to 2.x pickle compatibility shim for legacy .prz archives
+if hasattr(np, '_core'):
+    sys.modules.setdefault('numpy.core', np._core)
+    if hasattr(np._core, 'multiarray'):
+        sys.modules.setdefault('numpy.core.multiarray', np._core.multiarray)
+    for sub in ['numeric', 'umath', 'fromnumeric', 'defchararray', 'records']:
+        if hasattr(np._core, sub):
+            sys.modules.setdefault(f'numpy.core.{sub}', getattr(np._core, sub))
+
+class _NumpyCoreRedirector(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if fullname == 'numpy.core':
+            import numpy._core
+            return getattr(numpy._core, '__spec__', None)
+        if fullname.startswith('numpy.core.'):
+            sub = fullname.split('numpy.core.', 1)[1]
+            try:
+                mod = __import__('numpy._core.' + sub, fromlist=['*'])
+                return getattr(mod, '__spec__', None)
+            except ImportError:
+                return None
+        return None
+
+sys.meta_path.insert(0, _NumpyCoreRedirector())
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import json
